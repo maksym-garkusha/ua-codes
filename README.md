@@ -111,4 +111,4 @@ U=30, A=10:                3223130000026007233566001301021
 
 ## Ліцензія
 
-MIT, див. [LICENSE](LICENSE).
+MIT, див. [LICENSE](https://github.com/maksym-garkusha/ua-codes/blob/main/LICENSE).

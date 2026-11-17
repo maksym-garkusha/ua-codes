@@ -7,6 +7,24 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible>true</IsAotCompatible>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>UaCodes</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Maksym Harkusha</Authors>
+    <Description>Перевірка українських кодів: ЄДРПОУ, РНОКПП, IBAN, EIC, КАТОТТГ. Контрольні розряди, нормалізація, код банку з IBAN, тип об'єкта з EIC, область з КАТОТТГ. Без залежностей.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>ukraine;edrpou;rnokpp;iban;eic;katottg;validation</PackageTags>
+    <RepositoryUrl>https://github.com/maksym-garkusha/ua-codes</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>
