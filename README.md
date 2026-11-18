@@ -109,6 +109,47 @@ U=30, A=10:                3223130000026007233566001301021
 
 Перевірки ЄДРПОУ та EIC перенесені з проєкту [energoreestr](https://github.com/maksym-garkusha/energoreestr), де вони прогнані на реєстрах НКРЕКП з data.gov.ua: три набори, 6752 записи у файлах станом на 16.11.2026. Там же видно, як виглядають справжні помилки в кодах: загублені нулі на початку ЄДРПОУ, літера O замість нуля в EIC. Більшість справжніх кодів ЄДРПОУ та EIC у тестах узяті звідти.
 
+## Як випускається пакет
+
+Публікацію запускає тег `v*`, наприклад `v0.1.0`, а робить її workflow [publish.yml](https://github.com/maksym-garkusha/ua-codes/blob/main/.github/workflows/publish.yml). Спершу job `pack` звіряє тег із версією в `UaCodes.csproj`, збирає й тестує бібліотеку, пакує `.nupkg` з `.snupkg` і складає SBOM у форматі CycloneDX. Токен GitHub у цій job лише на читання. Далі job `publish` підписує атестації і викладає пакет на nuget.org. Наостанок job `release` створює реліз на GitHub з тими самими файлами, SBOM і сумами SHA-256.
+
+Ключа NuGet у репозиторії немає. Job `publish` отримує від GitHub OIDC-токен, і nuget.org за політикою [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) обмінює його на ключ, що діє годину. Політика на nuget.org має такі поля: Repository Owner `maksym-garkusha`, Repository `ua-codes`, Workflow File `publish.yml`, Environment порожнє. Ім'я профілю nuget.org, від якого її створено, лежить у змінній репозиторію `NUGET_USER`. Це не секрет: без токена саме з цього workflow ім'я нічого не дає.
+
+### Як перевірити файли
+
+Файли з релізу перевіряються через [GitHub CLI](https://cli.github.com/):
+
+```
+gh release download v0.1.0 -R maksym-garkusha/ua-codes
+gh attestation verify UaCodes.0.1.0.nupkg -R maksym-garkusha/ua-codes
+gh attestation verify UaCodes.0.1.0.snupkg -R maksym-garkusha/ua-codes
+gh attestation verify UaCodes.0.1.0.nupkg -R maksym-garkusha/ua-codes --predicate-type https://cyclonedx.org/bom
+```
+
+Перші дві перевірки показують, що файл зібрав workflow цього репозиторію, і з якого коміту. Третя підтверджує, що SBOM з релізу складено саме для цього `.nupkg`. Файл, у якому змінено бодай один байт, перевірку не проходить.
+
+Пакет із nuget.org байт у байт із релізним не збігається, бо nuget.org додає в кожен пакет свій підпис, файл `.signature.p7s`. Тому `gh attestation verify` на ньому не пройде. Решта вмісту та сама, і це видно, якщо розпакувати обидва архіви:
+
+```
+curl -sSL https://api.nuget.org/v3-flatcontainer/uacodes/0.1.0/uacodes.0.1.0.nupkg -o nugetorg.nupkg
+unzip -q UaCodes.0.1.0.nupkg -d release
+unzip -q nugetorg.nupkg -d nugetorg
+diff -r -x .signature.p7s release nugetorg
+```
+
+### Як зібрати пакет самому
+
+Пакет можна відтворити: той самий коміт, зібраний на Linux тим самим SDK, дає той самий `.nupkg` байт у байт. Версія SDK стоїть в описі релізу.
+
+```
+git clone https://github.com/maksym-garkusha/ua-codes && cd ua-codes
+git checkout v0.1.0
+dotnet pack src/UaCodes -c Release -o out -p:ContinuousIntegrationBuild=true -p:DeterministicTimestamp=$(git log -1 --pretty=%ct)
+sha256sum out/*
+```
+
+Суми мають збігтися з тими, що в описі релізу. Workflow tests на кожному коміті пише суми пакетів в анотації запуску, тож звірити можна будь-який коміт, а не лише реліз.
+
 ## Ліцензія
 
 MIT, див. [LICENSE](https://github.com/maksym-garkusha/ua-codes/blob/main/LICENSE).
