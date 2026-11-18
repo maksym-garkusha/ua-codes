@@ -28,8 +28,10 @@ jobs:
       - run: dotnet build -c Release
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet test -c Release --no-build
-      # пакування теж перевіряється на кожному коміті, а не лише в день релізу
-      - run: dotnet pack src/UaCodes -c Release --no-build -o out
+      # пакування теж перевіряється на кожному коміті, а не лише в день релізу. Час файлів
+      # у пакеті береться з коміту, тож суми в анотаціях можна звірити з локальною збіркою
+      - run: dotnet pack src/UaCodes -c Release --no-build -o out -p:DeterministicTimestamp=$(git log -1 --pretty=%ct)
+      - run: cd out && sha256sum -- * | sed 's/^/::notice title=sha256::/'
       # будь-яка відома вразливість у пакетах, разом із транзитивними, валить збірку
       - name: Check packages for known vulnerabilities
         run: |

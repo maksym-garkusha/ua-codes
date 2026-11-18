@@ -1,7 +1,8 @@
 name: publish
 
-# Пакет збирається й тестується без ключа. Ключ NuGet бачить тільки окрема job,
-# яка не відновлює пакети й не запускає код з репозиторію, а лише викладає готовий .nupkg.
+# Пакет збирає й тестує job pack з токеном лише на читання. Job publish нічого не збирає:
+# вона підписує атестації для готових файлів і обмінює OIDC-токен GitHub на ключ nuget.org,
+# який живе годину. Довгоживучого ключа NuGet у репозиторії немає.
 on:
   push:
     tags: ['v*']
@@ -13,6 +14,9 @@ jobs:
   pack:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sdk: ${{ steps.version.outputs.sdk }}
     steps:
       # поки що тільки записує, куди ходить runner; список доменів для блокування складемо з цих журналів
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -26,20 +30,43 @@ jobs:
         with:
           dotnet-version: '10.0.x'
           global-json-file: global.json
+      # тег і версія в UaCodes.csproj мають збігатися, інакше на nuget.org піде не та версія
+      - id: version
+        run: |
+          version=$(dotnet msbuild src/UaCodes -getProperty:Version)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME, а в UaCodes.csproj версія $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sdk=$(dotnet --version)" >> "$GITHUB_OUTPUT"
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
-      - run: dotnet pack src/UaCodes -c Release --no-build -o out
+      # час усіх файлів у пакеті беремо з коміту, тому той самий коміт тим самим SDK дає той самий .nupkg
+      - run: dotnet pack src/UaCodes -c Release --no-build -o out -p:DeterministicTimestamp=$(git log -1 --pretty=%ct)
+      - run: dotnet tool restore
+      - name: SBOM
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: dotnet CycloneDX src/UaCodes/UaCodes.csproj -o out -fn "UaCodes.$VERSION.cdx.json" -F Json -sn UaCodes -sv "$VERSION" -st Library --set-nuget-purl
+      - run: sha256sum out/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package
-          path: out/*.nupkg
+          path: |
+            out/*.nupkg
+            out/*.snupkg
+            out/*.cdx.json
           if-no-files-found: error
 
   publish:
     needs: pack
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions: {}
+    # id-token видаємо тільки тут: ним підписуються атестації і його ж nuget.org приймає замість ключа
+    permissions:
+      id-token: write
+      attestations: write
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -51,7 +78,56 @@ jobs:
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
+      # NUGET_USER це ім'я профілю nuget.org, від якого створено політику Trusted Publishing, а не ключ.
+      # Вхід іде першим, щоб помилка в політиці зупинила job ще до атестацій.
+      - id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+      # атестації до публікації: якщо підпис не вдався, на nuget.org нічого не піде
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            out/*.nupkg
+            out/*.snupkg
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: out/UaCodes.${{ needs.pack.outputs.version }}.nupkg
+          sbom-path: out/UaCodes.${{ needs.pack.outputs.version }}.cdx.json
+      # .snupkg з тієї самої теки push викладає на сервер символів сам
       - name: Push to nuget.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: dotnet nuget push out/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  release:
+    needs: [pack, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # на реліз ідуть ті самі файли, що отримали атестацію, і ще SBOM
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: out
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.pack.outputs.version }}
+          SDK: ${{ needs.pack.outputs.sdk }}
+        run: |
+          {
+            echo "Пакет на nuget.org: https://www.nuget.org/packages/UaCodes/$VERSION"
+            echo
+            echo "Зібрано .NET SDK $SDK. Як перевірити атестації і зібрати пакет самому: https://github.com/$GITHUB_REPOSITORY#readme"
+            echo
+            echo '```'
+            (cd out && sha256sum -- *)
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
