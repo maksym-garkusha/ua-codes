@@ -23,8 +23,19 @@
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
+  <!-- Source Link уже є в SDK. Тут PDB їде окремим .snupkg, а згенеровані під час збірки
+       файли вкладаються в нього, бо в репозиторії їх немає і відладчик не знайшов би їх за посиланням. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <!-- MIT вимагає, щоб текст ліцензії йшов разом із копіями коду, тож кладемо його в пакет поруч із виразом ліцензії -->
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
