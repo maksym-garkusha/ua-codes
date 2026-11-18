@@ -5,19 +5,33 @@ on:
     branches: [main]
   pull_request:
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
+      # поки що тільки записує, куди ходить runner; список доменів для блокування складемо з цих журналів
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # збирає SDK з global.json, а тести бібліотеки під net10.0 запускаються на рантаймі 10
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet test
+          global-json-file: global.json
+      - run: dotnet build -c Release
+      - run: dotnet format --verify-no-changes --no-restore
+      - run: dotnet test -c Release --no-build
+      # пакування теж перевіряється на кожному коміті, а не лише в день релізу
+      - run: dotnet pack src/UaCodes -c Release --no-build -o out
+      # будь-яка відома вразливість у пакетах, разом із транзитивними, валить збірку
+      - name: Check packages for known vulnerabilities
+        run: |
+          dotnet list package --vulnerable --include-transitive | tee vulnerable.txt
+          ! grep -q -E '^\s+>' vulnerable.txt
