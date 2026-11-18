@@ -24,7 +24,7 @@ public class EicTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("62z9628330106799")]   // мала літера
+    [InlineData("62z000000000123Y")]   // мала літера, синтетичний код
     [InlineData("62X863954335972")]    // 15 символів
     [InlineData("10Y1001А1001A869")]   // кирилична А замість латинської
     public void Codes_with_wrong_format_are_rejected(string? code)
